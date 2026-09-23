@@ -264,7 +264,7 @@ pub async fn serve(shared: Arc<Shared>, port: u16, depth: usize, static_dir: Opt
         .route("/api/orders", get(get_orders))
         .route("/api/fills", get(get_fills))
         .route("/api/order", post(place_order))
-        .route("/api/order/{id}", delete(cancel_order))
+        .route("/api/order/:id", delete(cancel_order))
         .route("/ws", get(ws_upgrade));
 
     match static_dir {

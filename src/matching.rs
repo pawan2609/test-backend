@@ -334,11 +334,11 @@ impl TradingState {
             match order.side {
                 Side::Buy => {
                     self.cash -= fill_cost;
-                    self.add_to_position(&order.symbol, fill_qty, *price);
+                    self.apply_fill(&order.symbol, fill_qty, *price);
                 }
                 Side::Sell => {
                     self.cash += fill_cost;
-                    self.reduce_position(&order.symbol, fill_qty, *price);
+                    self.apply_fill(&order.symbol, -fill_qty, *price);
                 }
             }
 
@@ -358,32 +358,40 @@ impl TradingState {
         new_fills
     }
 
-    fn add_to_position(&mut self, symbol: &str, qty: Decimal, price: Decimal) {
-        let pos = self.positions.entry(symbol.to_string()).or_insert(PositionInner {
-            qty: Decimal::zero(),
-            avg_cost: Decimal::zero(),
-            realized_pnl: Decimal::zero(),
-        });
-        if pos.qty.is_zero() {
-            pos.avg_cost = price;
-            pos.qty = qty;
-        } else {
-            let total_cost = pos.avg_cost * pos.qty + price * qty;
-            pos.qty += qty;
-            pos.avg_cost = total_cost / pos.qty;
+   
+    fn apply_fill(&mut self, symbol: &str, signed_qty: Decimal, price: Decimal) {
+        if signed_qty.is_zero() {
+            return;
         }
-    }
-
-    fn reduce_position(&mut self, symbol: &str, qty: Decimal, price: Decimal) {
         let pos = self.positions.entry(symbol.to_string()).or_insert(PositionInner {
             qty: Decimal::zero(),
             avg_cost: Decimal::zero(),
             realized_pnl: Decimal::zero(),
         });
-        let sell_qty = qty.min(pos.qty);
-        if sell_qty > Decimal::zero() {
-            pos.realized_pnl += (price - pos.avg_cost) * sell_qty;
-            pos.qty -= sell_qty;
+
+        let same_direction = pos.qty.is_zero() || (pos.qty.is_sign_positive() == signed_qty.is_sign_positive());
+        if same_direction {
+            let total_cost = pos.avg_cost * pos.qty.abs() + price * signed_qty.abs();
+            pos.qty += signed_qty;
+            pos.avg_cost = total_cost / pos.qty.abs();
+            return;
+        }
+
+        
+        let close_qty = signed_qty.abs().min(pos.qty.abs());
+        let direction = if pos.qty.is_sign_positive() { Decimal::ONE } else { -Decimal::ONE };
+        pos.realized_pnl += (price - pos.avg_cost) * close_qty * direction;
+        pos.qty -= close_qty * direction;
+
+        
+        let leftover = signed_qty.abs() - close_qty;
+        if leftover.is_zero() {
+            if pos.qty.is_zero() {
+                pos.avg_cost = Decimal::zero();
+            }
+        } else {
+            pos.qty = if signed_qty.is_sign_positive() { leftover } else { -leftover };
+            pos.avg_cost = price;
         }
     }
 }
